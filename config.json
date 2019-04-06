@@ -1,0 +1,8 @@
+{
+	"host": {
+		"title": "123TV Host",
+		"type": "string",
+		"default": "http://123tvnow.com",
+		"required": true
+	}
+}
