@@ -61,7 +61,7 @@ const builder = new addonBuilder({
 	catalogs: [
 		{
 			id: defaults.prefix + 'cat',
-			name: 'M3U Playlists',
+			name: '123TV',
 			type: 'tv',
 			extra: [{ name: 'search' }]
 		}
