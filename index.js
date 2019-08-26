@@ -120,145 +120,174 @@ builder.defineStreamHandler(args => {
 		if (meta) {
 			const imgOrig = meta.poster.replace(/-[0-9]+x[0-9]+/g,'')
 			const payload = btoa(meta.name + '||' + imgOrig)
+			const phantom = require('phantom')
+
 			const headers = {
 				'origin': host,
-				'referer': meta.href.replace(defaults.host, host),
-				'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
+				'referer': meta.href.replace(defaults.host, host)
 			}
-			needle.get(meta.href, { headers }, (err, resp, body) => {
-				if (!err && body) {
-					const matches = body.match(/atob\('[^']+'\)/g)
 
-					let matches2
+		    phantom.load({
+		        clearMemory: true,
+		        headers,
+		        agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36',
+		        polyfill: false,
+		    }, null, null, function(phInstance, page) {
 
-					if (!(matches || [])[0])
-						matches2 = body.match(/iframe src="(\/\/ok.ru[^"]+)/g)
+		        page.open(meta.href).then(async (status, body) => {
+		        	const content = await page.property('content')
+					let matches = (content || '').match(/E\.d\('[^)]+'\)/g)
+		        	if ((matches || [])[0]) {
+		        		const func = 'function() { var E={m:256,d:function(r,t){var e=JSON.parse(CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Base64.parse(r))),o=CryptoJS.enc.Hex.parse(e.salt),p=CryptoJS.enc.Hex.parse(e.iv),a=e.ciphertext,S=parseInt(e.iterations);S<=0&&(S=999);var i=this.m/4,n=CryptoJS.PBKDF2(t,o,{hasher:CryptoJS.algo.SHA512,keySize:i/8,iterations:S});return CryptoJS.AES.decrypt(a,n,{mode:CryptoJS.mode.CBC,iv:p}).toString(CryptoJS.enc.Utf8)}}; return eval("'+matches[0]+'"); }'
+	        		    page.evaluateJavaScript(func)
+	        		    .then(function(getUrl) {
 
-					if ((matches || [])[0]) {
-						const url = atob(matches[0].substr(6).slice(0, -2)) + '?1&json=' + payload
-						needle.get(url, { headers }, (err, resp, body) => {
-							if (!err && body && Array.isArray(body) && body.length) {
-								const results = body.map(el => { return { title: el.title || el.type || 'Stream', url: el.file } })
-								if (results.length) {
-									const streams = []
-									const q = async.queue((task, cb) => {
-										console.log(defaults.name + ' - Checking playlist: ' + task.url)
-										needle.get(task.url, { headers }, (err, resp, body) => {
-											if (!err && body) {
-												let playlist
-												try {
-													playlist = m3u(body)
-												} catch(e) {
-													console.error(e)
-												}
-												if (playlist && playlist.length) {
-													const urls = []
-													playlist.forEach(line => {
-														if (typeof line == 'string' && (line.endsWith('.m3u') || line.endsWith('.m3u8')))
-															urls.push(line)
-													})
-													if (urls.length) {
-														urls.forEach(el => {
-															if (!el.includes('://'))
-																el = task.url.substr(0, task.url.lastIndexOf("/") +1) + el
-															streams.push({ title: task.title, url: proxy.addProxy(el, { headers }) })
-														})
-													} else {
-														task.url = proxy.addProxy(task.url, { headers })
-														streams.push(task)
-													}
-												}
-											} else if (err) {
-												console.error(err)
-												if (!task.didRemap) {
-													const server = task.url.match(/\/\/w[0-9]\./)
-													if ((server || [])[0]) {
-														const srv = parseInt((server || [])[0].replace('//w', '').replace('.',''))
-														for (let key = 1; key < 11; key++)
-															if (key != srv)
-																q.push({ title: task.title, url: task.url.replace('//w' + srv + '.', '//w' + key + '.'), didRemap: true })
-													}
-												}
-											}
-											cb()
-										})
-									}, 1)
-									q.drain = () => {
-										if (streams.length)
-											resolve({ streams })
-										else
-											reject(defaults.name + ' - No valid stream URLs from API')
-									}
-									results.forEach(result => { q.push(result) })
-								} else
-									reject(defaults.name + ' - Got empty array of stream URLs from API')
-							} else
-								reject(defaults.name + ' - Could not extract stream URL from API')
-						})
-					} else if ((matches2 || [])[0]) {
-						const headers = {
-							'origin': host,
-							'referer': meta.href.replace(defaults.host, host),
-							'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
-						}
-						needle.get('https:' + matches2[0].replace('iframe src="', ''), { headers }, (err, resp, body) => {
-							const matches = body.match(/hlsMasterPlaylistUrl\\&quot;:\\&quot;([^\\]+)/g)
-							if ((matches || [])[0]) {
-								const headers = {
-									'origin': 'https://' + matches2[0].replace('iframe src="', '').split('/')[2],
-									'referer': 'https:' + matches2[0].replace('iframe src="', ''),
-									'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
-								}
-								const task = { url: (matches || [])[0].replace('hlsMasterPlaylistUrl\\&quot;:\\&quot;', '') }
-								needle.get(task.url, { headers }, (err, resp, body) => {
-									if (!err && body) {
-										body = Buffer.isBuffer(body) ? body.toString() : body
-										let playlist
-										try {
-											playlist = m3u(body)
-										} catch(e) {
-											console.error(e)
-										}
+				            phantom.close(phInstance, page, () => {})
+
+				            const streamHeaders = {
+				            	'referer': meta.href,
+				            	'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36'
+				            }
+
+							needle.get(getUrl + '?1&json=' + payload, { headers: streamHeaders }, (err, resp, body) => {
+								if (body && (typeof body === 'string' || body instanceof String) && (body.startsWith('http:') || body.startsWith('https:')))
+									body = [{file: body}]
+								if (!err && body && Array.isArray(body) && body.length) {
+									const results = body.map(el => { return { title: el.title || el.type || 'Stream', url: el.file } })
+									if (results.length) {
 										const streams = []
-										if (playlist && playlist.length) {
-											const urls = []
-											playlist.forEach(line => {
-												if (typeof line == 'string' && (line.endsWith('.m3u') || line.endsWith('.m3u8')))
-													urls.push(line)
+										const q = async.queue((task, cb) => {
+											console.log(defaults.name + ' - Checking playlist: ' + task.url)
+											needle.get(task.url, { headers: streamHeaders }, (err, resp, body) => {
+												if (!err && body) {
+													body = Buffer.isBuffer(body) ? body.toString() : body
+													let playlist
+													try {
+														playlist = m3u(body)
+													} catch(e) {
+														console.error(e)
+													}
+													if (playlist && playlist.length) {
+														const urls = []
+														playlist.forEach(line => {
+															if (typeof line == 'string' && (line.endsWith('.m3u') || line.endsWith('.m3u8')))
+																urls.push(line)
+														})
+														if (urls.length) {
+															urls.forEach(el => {
+																if (!el.includes('://'))
+																	el = task.url.substr(0, task.url.lastIndexOf("/") +1) + el
+																streams.push({ title: task.title, url: proxy.addProxy(el, { headers: streamHeaders, playlist: el.includes('.dailymotion.com') ? false : true }) })
+															})
+														} else {
+															task.url = proxy.addProxy(task.url, { headers: streamHeaders, playlist: task.url.includes('.dailymotion.com') ? false : true })
+															streams.push(task)
+														}
+													}
+												} else if (err) {
+													console.error(err)
+													if (!task.didRemap) {
+														const server = task.url.match(/\/\/w[0-9]\./)
+														if ((server || [])[0]) {
+															const srv = parseInt((server || [])[0].replace('//w', '').replace('.',''))
+															for (let key = 1; key < 11; key++)
+																if (key != srv)
+																	q.push({ title: task.title, url: task.url.replace('//w' + srv + '.', '//w' + key + '.'), didRemap: true })
+														}
+													}
+												}
+												cb()
 											})
-											if (urls.length) {
-												urls.forEach(el => {
-													if (!el.includes('://'))
-														el = task.url.substr(0, task.url.lastIndexOf("/") +1) + el
-													let title = 'Stream'
-													if (el.includes('_high/'))
-														title = 'High'
-													else if (el.includes('_low/'))
-														title = 'Low'
-													else if (el.includes('_medium/'))
-														title = 'Medium'
-													else if (el.includes('_lowest/'))
-														title = 'Lowest'
-													streams.push({ title: title, url: proxy.addProxy(el, { headers }) })
-												})
-											} else {
-												task.url = proxy.addProxy(task.url, { headers })
-												streams.push(task)
-											}
+										}, 1)
+										q.drain = () => {
+											if (streams.length)
+												resolve({ streams })
+											else
+												reject(defaults.name + ' - No valid stream URLs from API')
 										}
-										resolve({ streams })
-									} else if (err)
-										reject(err || new Error(defaults.name + ' - Unexpected m3u8 response from ok.ru'))
-								})
-
-							} else
-								reject(defaults.name + ' - Could not extract API URL with REGEX 2')
+										results.forEach(result => { q.push(result) })
+									} else
+										reject(defaults.name + ' - Got empty array of stream URLs from API')
+								} else
+									reject(defaults.name + ' - Could not extract stream URL from API')
+							})
+						}).catch(e => {
+							phantom.close(phInstance, page, () => {})
+							reject(defaults.name + ' - ' + (e.message || 'Unknown error'))
 						})
-					} else
-						reject(defaults.name + ' - Could not extract API URL with REGEX')
-				} else
-					reject(defaults.name + ' - Could not extract API URL')
-			})
+
+		        	} else {
+		        		phantom.close(phInstance, page, () => {})
+						matches = (content || '').match(/iframe src="(\/\/ok.ru[^"]+)/g)
+
+						if ((matches || [])[0]) {
+							const headers = {
+								'origin': host,
+								'referer': meta.href.replace(defaults.host, host),
+								'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
+							}
+							const okUrl = matches[0].replace('iframe src="', '')
+							needle.get('https:' + okUrl, { headers }, (err, resp, body) => {
+								const matches = body.match(/hlsMasterPlaylistUrl\\&quot;:\\&quot;([^\\]+)/g)
+								if ((matches || [])[0]) {
+									const headers = {
+										'origin': 'https://' + okUrl.split('/')[2],
+										'referer': 'https:' + okUrl,
+										'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
+									}
+									const task = { url: (matches || [])[0].replace('hlsMasterPlaylistUrl\\&quot;:\\&quot;', '') }
+									needle.get(task.url, { headers }, (err, resp, body) => {
+										if (!err && body) {
+											body = Buffer.isBuffer(body) ? body.toString() : body
+											let playlist
+											try {
+												playlist = m3u(body)
+											} catch(e) {
+												console.error(e)
+											}
+											const streams = []
+											if (playlist && playlist.length) {
+												const urls = []
+												playlist.forEach(line => {
+													if (typeof line == 'string' && (line.endsWith('.m3u') || line.endsWith('.m3u8')))
+														urls.push(line)
+												})
+												if (urls.length) {
+													urls.forEach(el => {
+														if (!el.includes('://'))
+															el = task.url.substr(0, task.url.lastIndexOf("/") +1) + el
+														let title = 'Stream'
+														if (el.includes('_high/'))
+															title = 'High'
+														else if (el.includes('_low/'))
+															title = 'Low'
+														else if (el.includes('_medium/'))
+															title = 'Medium'
+														else if (el.includes('_lowest/'))
+															title = 'Lowest'
+														streams.push({ title: title, url: proxy.addProxy(el, { headers }) })
+													})
+												} else {
+													task.url = proxy.addProxy(task.url, { headers })
+													streams.push(task)
+												}
+											}
+											resolve({ streams })
+										} else if (err)
+											reject(err || new Error(defaults.name + ' - Unexpected m3u8 response from ok.ru'))
+									})
+
+								} else
+									reject(defaults.name + ' - Could not extract API URL with REGEX 2')
+							})
+						} else
+				            reject(defaults.name + ' - Error while getting API url from web page')
+		        	}
+		        }, function(err) {
+		            phantom.close(phInstance, page, () => {})
+		            reject(defaults.name + ' - Error while loading web page: ' + (err.message || ''))
+		        })
+		    })
 		} else
 			reject(defaults.name + ' - Could not get stream for id: ' + args.id)
 	})
