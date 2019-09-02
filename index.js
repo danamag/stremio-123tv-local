@@ -8,7 +8,7 @@ const defaults = {
 	name: '123 TV',
 	prefix: '123tv_',
 	host: 'http://123tvnow.com',
-	icon: 'http://123tvnow.com/wp-content/themes/123tv/img/logo.png'
+	icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3i1zBYl9KWtrGK9sOM_4L3AO7QCJ5ooz1vxWxx9wMzVpFJhowEw'
 }
 
 const channels = require('./channels').map(el => {
@@ -68,6 +68,15 @@ const builder = new addonBuilder({
 	]
 })
 
+function fixImages(el) {
+	if (el.poster)
+		el.poster = proxy.addProxy(el.poster)
+	if (el.logo)
+		el.logo = proxy.addProxy(el.logo)
+	if (el.background)
+		el.background = proxy.addProxy(el.background)
+	return el
+}
 
 builder.defineCatalogHandler(args => {
 	return new Promise((resolve, reject) => {
@@ -79,12 +88,12 @@ builder.defineCatalogHandler(args => {
 					results.push(meta)
 			})
 			if (results.length)
-				resolve({ metas: results })
+				resolve({ metas: results.map(fixImages) })
 			else
 				reject(defaults.name + ' - No search results for: ' + extra.search)
 
 		} else
-			resolve({ metas: channels })
+			resolve({ metas: channels.map(fixImages) })
 	})
 })
 
@@ -98,7 +107,7 @@ builder.defineMetaHandler(args => {
 			}
 		})
 		if (meta)
-			resolve({ meta })
+			resolve({ meta: fixImages(meta) })
 		else
 			reject(defaults.name + ' - Could not get meta for id: ' + args.id)
 	})
