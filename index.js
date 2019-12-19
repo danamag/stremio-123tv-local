@@ -68,13 +68,20 @@ const builder = new addonBuilder({
 	]
 })
 
+const imageHeaders = {
+//	'host': '123tvnow.com',
+    'origin': 'http://123tvnow.com',
+	'referer': 'http://123tvnow.com/watch/disney-xd/',
+	'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36'
+}
+
 function fixImages(el) {
 	if (el.poster)
-		el.poster = proxy.addProxy(el.poster)
+		el.poster = proxy.addProxy(el.poster, { headers: imageHeaders })
 	if (el.logo)
-		el.logo = proxy.addProxy(el.logo)
+		el.logo = proxy.addProxy(el.logo, { headers: imageHeaders })
 	if (el.background)
-		el.background = proxy.addProxy(el.background)
+		el.background = proxy.addProxy(el.background, { headers: imageHeaders })
 	return el
 }
 
@@ -115,6 +122,7 @@ builder.defineMetaHandler(args => {
 
 builder.defineStreamHandler(args => {
 	return new Promise((resolve, reject) => {
+
 		if (cache[args.id]) {
 			resolve(cache[args.id])
 			return
@@ -154,6 +162,7 @@ builder.defineStreamHandler(args => {
 				            phantom.close(phInstance, page, () => {})
 
 				            const streamHeaders = {
+				            	'origin': meta.href.split('/')[0] + '://' + meta.href.split('/')[2],
 				            	'referer': meta.href,
 				            	'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36'
 				            }
@@ -186,10 +195,12 @@ builder.defineStreamHandler(args => {
 															urls.forEach(el => {
 																if (!el.includes('://'))
 																	el = task.url.substr(0, task.url.lastIndexOf("/") +1) + el
-																streams.push({ title: task.title, url: proxy.addProxy(el, { headers: streamHeaders, playlist: el.includes('.dailymotion.com') ? false : true }) })
+																streamHeaders['host'] = el.split('//')[1].split('/')[0]
+																streams.push({ title: task.title, url: proxy.addProxy(el, { headers: streamHeaders, playlist: el.includes('.gogleusercontent.host') || el.includes('.dailymotion.com') ? false : true }) })
 															})
 														} else {
-															task.url = proxy.addProxy(task.url, { headers: streamHeaders, playlist: task.url.includes('.dailymotion.com') ? false : true })
+															streamHeaders['host'] = task.url.split('//')[1].split('/')[0]
+															task.url = proxy.addProxy(task.url, { headers: streamHeaders, playlist: task.url.includes('.gogleusercontent.host') || task.url.includes('.dailymotion.com') ? false : true })
 															streams.push(task)
 														}
 													}
